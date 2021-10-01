@@ -1,2 +1,2 @@
 
-Cookbook web app made with go and react
+Cookbook REST API
