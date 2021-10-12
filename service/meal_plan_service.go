@@ -58,7 +58,7 @@ func (s MealPlanServiceImpl) Get(id int64) (mealPlan MealPlanGet, err error) {
 
 func (s MealPlanServiceImpl) getMeals(meals *map[int64]MealGet) error {
 	var ids []int64
-	for id, _ := range *meals {
+	for id := range *meals {
 		ids = append(ids, id)
 	}
 	rMeals, err := s.mealService.GetList(ids)

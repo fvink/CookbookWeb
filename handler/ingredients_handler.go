@@ -14,16 +14,7 @@ type IngredientHandler struct {
 	Service service.IngredientService
 }
 
-func (handler IngredientHandler) Register(router *mux.Router) {
-	subrouter := router.PathPrefix("/ingredients").Subrouter()
-	subrouter.Path("").Methods(http.MethodGet).HandlerFunc(handler.ingredients)
-	subrouter.Path("").Methods(http.MethodPost).HandlerFunc(handler.createIngredient)
-	subrouter.Path("/{id}").Methods(http.MethodGet).HandlerFunc(handler.ingredientByName)
-	subrouter.Path("/{id}").Methods(http.MethodPut).HandlerFunc(handler.updateIngredient)
-	subrouter.Path("/{id}").Methods(http.MethodDelete).HandlerFunc(handler.deleteIngredient)
-}
-
-func (handler IngredientHandler) ingredients(w http.ResponseWriter, r *http.Request) {
+func (handler IngredientHandler) Get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ings, err := handler.Service.GetAll()
 	if err != nil {
@@ -33,7 +24,7 @@ func (handler IngredientHandler) ingredients(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(ings)
 }
 
-func (handler IngredientHandler) ingredientByName(w http.ResponseWriter, r *http.Request) {
+func (handler IngredientHandler) GetById(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
 	if err != nil {
 		handleError(w, err)
@@ -48,7 +39,7 @@ func (handler IngredientHandler) ingredientByName(w http.ResponseWriter, r *http
 	json.NewEncoder(w).Encode(ing)
 }
 
-func (handler IngredientHandler) createIngredient(w http.ResponseWriter, r *http.Request) {
+func (handler IngredientHandler) Post(w http.ResponseWriter, r *http.Request) {
 	headerContentTtype := r.Header.Get("Content-Type")
 	if headerContentTtype != "application/json" {
 		errorResponse(w, "Content Type is not application/json", http.StatusUnsupportedMediaType)
@@ -76,7 +67,7 @@ func (handler IngredientHandler) createIngredient(w http.ResponseWriter, r *http
 	errorResponse(w, "Success", http.StatusOK)
 }
 
-func (handler IngredientHandler) updateIngredient(w http.ResponseWriter, r *http.Request) {
+func (handler IngredientHandler) Put(w http.ResponseWriter, r *http.Request) {
 	headerContentTtype := r.Header.Get("Content-Type")
 	if headerContentTtype != "application/json" {
 		errorResponse(w, "Content Type is not application/json", http.StatusUnsupportedMediaType)
@@ -104,7 +95,7 @@ func (handler IngredientHandler) updateIngredient(w http.ResponseWriter, r *http
 	errorResponse(w, "Success", http.StatusOK)
 }
 
-func (handler IngredientHandler) deleteIngredient(w http.ResponseWriter, r *http.Request) {
+func (handler IngredientHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
 	if err != nil {
 		handleError(w, err)
