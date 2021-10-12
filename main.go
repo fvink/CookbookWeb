@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 
-	_ "github.com/go-sql-driver/mysql"
-
+	"github.com/cookbook/config"
 	"github.com/cookbook/repository"
 	"github.com/cookbook/service"
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 var serv service.IngredientService
@@ -415,42 +418,59 @@ func handleError(w http.ResponseWriter, err error) {
 }
 
 func main() {
-	r := mux.NewRouter()
-	repo, _ := repository.NewIngredientRepository()
-	recipeRepo, _ := repository.NewRecipeRepository()
-	mealRepo, _ := repository.NewMealRepository()
-	mealPlanRepo, _ := repository.NewMealPlanRepository()
+	conf, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(2)
+	}
+	router := mux.NewRouter()
+	databaseUrl := fmt.Sprintf("%s://%s:%s@%s:%s/%s", conf.Database.Protocol,
+		conf.Database.Username,
+		conf.Database.Password,
+		conf.Database.Server,
+		conf.Database.Port,
+		conf.Database.Name)
+	dbConn, err := pgxpool.Connect(context.Background(), databaseUrl)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
+		os.Exit(1)
+	}
+	defer dbConn.Close()
+	repo := repository.NewIngredientRepository(dbConn)
+	recipeRepo := repository.NewRecipeRepository(dbConn)
+	mealRepo := repository.NewMealRepository(dbConn)
+	mealPlanRepo := repository.NewMealPlanRepository(dbConn)
 	serv = service.NewIngredientService(repo)
 	recipeServ = service.NewRecipeService(recipeRepo, serv)
 	mealServ = service.NewMealService(mealRepo, recipeServ)
 	mealPlanServ = service.NewMealPlanService(mealPlanRepo, mealServ)
 	//r.HandleFunc("/", home)
-	ingredientsR := r.PathPrefix("/ingredients").Subrouter()
+	ingredientsR := router.PathPrefix("/ingredients").Subrouter()
 	ingredientsR.Path("").Methods(http.MethodGet).HandlerFunc(ingredients)
 	ingredientsR.Path("").Methods(http.MethodPost).HandlerFunc(createIngredient)
 	ingredientsR.Path("/{id}").Methods(http.MethodGet).HandlerFunc(ingredientByName)
 	ingredientsR.Path("/{id}").Methods(http.MethodPut).HandlerFunc(updateIngredient)
 	ingredientsR.Path("/{id}").Methods(http.MethodDelete).HandlerFunc(deleteIngredient)
 
-	recipeR := r.PathPrefix("/recipes").Subrouter()
+	recipeR := router.PathPrefix("/recipes").Subrouter()
 	recipeR.Path("").Methods(http.MethodGet).HandlerFunc(recipes)
 	recipeR.Path("").Methods(http.MethodPost).HandlerFunc(createRecipe)
 	recipeR.Path("/{id}").Methods(http.MethodGet).HandlerFunc(recipeById)
 	recipeR.Path("/{id}").Methods(http.MethodPut).HandlerFunc(updateRecipe)
 	recipeR.Path("/{id}").Methods(http.MethodDelete).HandlerFunc(deleteRecipe)
 
-	mealR := r.PathPrefix("/meal").Subrouter()
+	mealR := router.PathPrefix("/meals").Subrouter()
 	mealR.Path("").Methods(http.MethodGet).HandlerFunc(meals)
 	mealR.Path("").Methods(http.MethodPost).HandlerFunc(createMeal)
 	mealR.Path("/{id}").Methods(http.MethodGet).HandlerFunc(mealById)
 	mealR.Path("/{id}").Methods(http.MethodPut).HandlerFunc(updateMeal)
 	mealR.Path("/{id}").Methods(http.MethodDelete).HandlerFunc(deleteMeal)
 
-	mealPlanR := r.PathPrefix("/meal-plans").Subrouter()
+	mealPlanR := router.PathPrefix("/meal-plans").Subrouter()
 	mealPlanR.Path("").Methods(http.MethodGet).HandlerFunc(mealPlans)
 	mealPlanR.Path("").Methods(http.MethodPost).HandlerFunc(createMealPlan)
 	mealPlanR.Path("/{id}").Methods(http.MethodGet).HandlerFunc(mealPlanById)
 	mealPlanR.Path("/{id}").Methods(http.MethodPut).HandlerFunc(updateMealPlan)
 	mealPlanR.Path("/{id}").Methods(http.MethodDelete).HandlerFunc(deleteMealPlan)
-	http.ListenAndServe(":3000", r)
+	http.ListenAndServe(conf.Server.Host+":"+conf.Server.Port, router)
 }

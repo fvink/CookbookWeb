@@ -46,3 +46,5 @@ typings/
 
 # Yarn Integrity file
 .yarn-integrity
+
+config.yaml
