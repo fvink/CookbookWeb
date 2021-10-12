@@ -31,44 +31,23 @@ func (s MealPlanServiceImpl) Get(id int64) (mealPlan MealPlanGet, err error) {
 	if err != nil {
 		return MealPlanGet{}, handleError(err)
 	}
-
-	mealPlan = MealPlanGet{
-		Id:          rMealPlan.Id,
-		Name:        rMealPlan.Name,
-		DateStarted: rMealPlan.StartDate,
-	}
-	meals := make(map[int64]MealGet)
-	for _, dayMeals := range rMealPlan.Meals {
-		for _, mealId := range dayMeals {
-			meals[mealId] = MealGet{}
-		}
-	}
-	err = s.getMeals(&meals)
+	mealPlans, err := s.convertRepoModel(rMealPlan)
 	if err != nil {
 		return MealPlanGet{}, handleError(err)
 	}
-	mealPlan.Meals = make([][]MealGet, len(rMealPlan.Meals))
-	for day, dayMeals := range rMealPlan.Meals {
-		for _, mealId := range dayMeals {
-			mealPlan.Meals[day] = append(mealPlan.Meals[day], meals[mealId])
-		}
+	if len(mealPlans) != 1 {
+		fmt.Println("Found multiple meal plans with the same ID")
+		return MealPlanGet{}, &InternalError{message: "internal error, if the problem persists contact server admin"}
 	}
-	return
+	return mealPlans[0], nil
 }
 
-func (s MealPlanServiceImpl) getMeals(meals *map[int64]MealGet) error {
-	var ids []int64
-	for id := range *meals {
-		ids = append(ids, id)
-	}
-	rMeals, err := s.mealService.GetList(ids)
+func (s MealPlanServiceImpl) GetAll() ([]MealPlanGet, error) {
+	rMealPlans, err := s.repo.GetAll()
 	if err != nil {
-		return err
+		return []MealPlanGet{}, handleError(err)
 	}
-	for _, meal := range rMeals {
-		(*meals)[meal.Id] = meal
-	}
-	return nil
+	return s.convertRepoModel(rMealPlans...)
 }
 
 func (s MealPlanServiceImpl) Create(mealPlan MealPlanCreate) (err error) {
@@ -114,14 +93,13 @@ func (s MealPlanServiceImpl) Delete(id int64) (err error) {
 	return
 }
 
-func (s MealPlanServiceImpl) GetAll() ([]MealPlanGet, error) {
-	rMealPlans, err := s.repo.GetAll()
+func (s MealPlanServiceImpl) convertRepoModel(repoMealPlans ...repository.MealPlan) ([]MealPlanGet, error) {
+	var mealPlans = make([]MealPlanGet, len(repoMealPlans))
+	usedMeals, err := s.getAllMeals(repoMealPlans...)
 	if err != nil {
 		return []MealPlanGet{}, handleError(err)
 	}
-	var mealPlans = make([]MealPlanGet, len(rMealPlans))
-
-	for index, rMealPlan := range rMealPlans {
+	for index, rMealPlan := range repoMealPlans {
 		mealPlans[index] = MealPlanGet{
 			Id:          rMealPlan.Id,
 			Name:        rMealPlan.Name,
@@ -130,17 +108,34 @@ func (s MealPlanServiceImpl) GetAll() ([]MealPlanGet, error) {
 		mealPlans[index].Meals = make([][]MealGet, len(rMealPlan.Meals))
 		for day, dayMeals := range rMealPlan.Meals {
 			for _, mealId := range dayMeals {
-				fmt.Println(mealId)
-				rMeal, _ := s.mealService.Get(mealId)
-				if err != nil {
-
-				}
-				mealPlans[index].Meals[day] = append(mealPlans[index].Meals[day], rMeal)
+				mealPlans[index].Meals[day] = append(mealPlans[index].Meals[day], (*usedMeals)[mealId])
 			}
 		}
 	}
-
 	return mealPlans, nil
+}
+
+func (s MealPlanServiceImpl) getAllMeals(mealPlans ...repository.MealPlan) (*map[int64]MealGet, error) {
+	meals := make(map[int64]MealGet)
+	var ids []int64
+	for _, mealPlan := range mealPlans {
+		for _, dayMeals := range mealPlan.Meals {
+			for _, mealId := range dayMeals {
+				if _, ok := meals[mealId]; !ok {
+					meals[mealId] = MealGet{}
+					ids = append(ids, mealId)
+				}
+			}
+		}
+	}
+	rMeals, err := s.mealService.GetList(ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, meal := range rMeals {
+		meals[meal.Id] = meal
+	}
+	return &meals, nil
 }
 
 func validateMealPlan(meal MealPlanCreate) error {

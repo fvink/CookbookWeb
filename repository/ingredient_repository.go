@@ -112,7 +112,7 @@ func (r IngredientRepository) GetAll() (ingredients []Ingredient, err error) {
 }
 
 func (r IngredientRepository) GetList(ids []int64) (ingredients []Ingredient, err error) {
-	results, err := r.db.Query(context.Background(), "SELECT * FROM ingredients WHERE id IN ($1)", JoinIds(ids))
+	results, err := r.db.Query(context.Background(), "SELECT * FROM ingredients WHERE id IN ("+JoinIds(ids)+")")
 	if err != nil {
 		return []Ingredient{}, &InternalError{err.Error()}
 	}

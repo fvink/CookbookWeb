@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/cookbook/repository"
@@ -9,6 +10,7 @@ import (
 type IngredientService interface {
 	Get(int64) (Ingredient, error)
 	GetAll() ([]Ingredient, error)
+	GetList(ids []int64) ([]Ingredient, error)
 	Create(Ingredient) error
 	Update(Ingredient) error
 	Delete(int64) error
@@ -48,22 +50,35 @@ func NewIngredientService(r *repository.IngredientRepository) IngredientService 
 	return s
 }
 
-func (s ServiceImpl) Get(id int64) (ing Ingredient, e error) {
+func (s ServiceImpl) Get(id int64) (Ingredient, error) {
 	ri, err := s.repo.Get(id)
 	if err != nil {
 		return Ingredient{}, handleError(err)
 	}
+	ingredients := s.convertRepoModel(ri)
+	if len(ingredients) != 1 {
+		fmt.Println("Found multiple ingredients with the same ID")
+		return Ingredient{}, &InternalError{message: "internal error, if the problem persists contact server admin"}
+	}
+	return ingredients[0], nil
+}
 
-	ing.Id = ri.Id
-	ing.Name = ri.Name
-	ing.Calories = ri.Calories
-	ing.Amount = ri.Amount
-	ing.Unit = ri.Unit
-	ing.Fat = ri.Fat
-	ing.Carbs = ri.Carbs
-	ing.Protein = ri.Protein
+func (s ServiceImpl) GetList(ids []int64) ([]Ingredient, error) {
+	ri, err := s.repo.GetList(ids)
+	if err != nil {
+		fmt.Println(err.Error())
+		return []Ingredient{}, handleError(err)
+	}
+	return s.convertRepoModel(ri...), nil
+}
 
-	return ing, e
+func (s ServiceImpl) GetAll() ([]Ingredient, error) {
+	ri, err := s.repo.GetAll()
+	if err != nil {
+		fmt.Println(err.Error())
+		return []Ingredient{}, handleError(err)
+	}
+	return s.convertRepoModel(ri...), nil
 }
 
 func (s ServiceImpl) Create(i Ingredient) (err error) {
@@ -122,25 +137,26 @@ func (s ServiceImpl) Delete(id int64) (err error) {
 	return
 }
 
-func (s ServiceImpl) GetAll() ([]Ingredient, error) {
-	ri, err := s.repo.GetAll()
-	if err != nil {
-		return []Ingredient{}, handleError(err)
-	}
-	var ings = make([]Ingredient, len(ri))
+func (s ServiceImpl) convertRepoModel(repoIngredients ...repository.Ingredient) []Ingredient {
+	var ings = make([]Ingredient, len(repoIngredients))
 
-	for index, i := range ri {
-		ings[index].Id = i.Id
-		ings[index].Name = i.Name
-		ings[index].Calories = i.Calories
-		ings[index].Amount = i.Amount
-		ings[index].Unit = i.Unit
-		ings[index].Fat = i.Fat
-		ings[index].Carbs = i.Carbs
-		ings[index].Protein = i.Protein
+	for index, i := range repoIngredients {
+		ings[index] = Ingredient{
+			Id:   i.Id,
+			Name: i.Name,
+			NutritionalValue: NutritionalValue{
+				Quantity: Quantity{
+					Amount: i.Amount,
+					Unit:   i.Unit,
+				},
+				Calories: i.Calories,
+				Fat:      i.Fat,
+				Carbs:    i.Carbs,
+				Protein:  i.Protein,
+			},
+		}
 	}
-
-	return ings, nil
+	return ings
 }
 
 func validateIngredient(i Ingredient) error {

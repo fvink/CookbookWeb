@@ -27,21 +27,38 @@ func NewMealService(r *repository.MealRepository, rs RecipeService) MealService 
 	}
 }
 
-func (s MealServiceImpl) Get(id int64) (meal MealGet, err error) {
+func (s MealServiceImpl) Get(id int64) (MealGet, error) {
 	rMeal, err := s.repo.Get(id)
 	if err != nil {
 		return MealGet{}, handleError(err)
 	}
+	meals, err := s.convertRepoModel(rMeal)
+	if err != nil {
+		return MealGet{}, handleError(err)
+	}
+	if len(meals) != 1 {
+		fmt.Println("Found multiple meals with the same ID")
+		return MealGet{}, &InternalError{message: "internal error, if the problem persists contact server admin"}
+	}
+	return meals[0], nil
+}
 
-	meal = MealGet{
-		Id:   rMeal.Id,
-		Name: rMeal.Name,
+func (s MealServiceImpl) GetList(ids []int64) ([]MealGet, error) {
+	rMeals, err := s.repo.GetList(ids)
+	if err != nil {
+		fmt.Println(err.Error())
+		return []MealGet{}, handleError(err)
 	}
-	for _, recipeId := range rMeal.Recipes {
-		rRecipe, _ := s.rcpService.Get(recipeId)
-		meal.Recipes = append(meal.Recipes, rRecipe)
+	return s.convertRepoModel(rMeals...)
+}
+
+func (s MealServiceImpl) GetAll() ([]MealGet, error) {
+	rMeals, err := s.repo.GetAll()
+	if err != nil {
+		fmt.Println(err.Error())
+		return []MealGet{}, handleError(err)
 	}
-	return
+	return s.convertRepoModel(rMeals...)
 }
 
 func (s MealServiceImpl) Create(meal MealCreate) (err error) {
@@ -85,53 +102,43 @@ func (s MealServiceImpl) Delete(id int64) (err error) {
 	return
 }
 
-func (s MealServiceImpl) GetAll() ([]MealGet, error) {
-	rMeals, err := s.repo.GetAll()
+func (s MealServiceImpl) convertRepoModel(repoMeals ...repository.Meal) ([]MealGet, error) {
+	var meals = make([]MealGet, len(repoMeals))
+	usedRecipes, err := s.getAllRecipes(repoMeals...)
 	if err != nil {
 		return []MealGet{}, handleError(err)
 	}
-	var meals = make([]MealGet, len(rMeals))
-
-	for index, rMeal := range rMeals {
+	for index, rMeal := range repoMeals {
 		meals[index] = MealGet{
 			Id:   rMeal.Id,
 			Name: rMeal.Name,
 		}
 		for _, recipeId := range rMeal.Recipes {
-			rRecipe, _ := s.rcpService.Get(recipeId)
-			if err != nil {
-
-			}
-			meals[index].Recipes = append(meals[index].Recipes, rRecipe)
+			meals[index].Recipes = append(meals[index].Recipes, (*usedRecipes)[recipeId])
 		}
 	}
-
 	return meals, nil
 }
 
-func (s MealServiceImpl) GetList(ids []int64) ([]MealGet, error) {
-	rMeals, err := s.repo.GetList(ids)
-	if err != nil {
-		fmt.Println(err.Error())
-		return []MealGet{}, handleError(err)
-	}
-	var meals = make([]MealGet, len(rMeals))
-
-	for index, rMeal := range rMeals {
-		meals[index] = MealGet{
-			Id:   rMeal.Id,
-			Name: rMeal.Name,
-		}
-		for _, recipeId := range rMeal.Recipes {
-			rRecipe, _ := s.rcpService.Get(recipeId)
-			if err != nil {
-
+func (s MealServiceImpl) getAllRecipes(meals ...repository.Meal) (*map[int64]RecipeGet, error) {
+	recipes := make(map[int64]RecipeGet)
+	var ids []int64
+	for _, meal := range meals {
+		for _, recipeId := range meal.Recipes {
+			if _, ok := recipes[recipeId]; !ok {
+				recipes[recipeId] = RecipeGet{}
+				ids = append(ids, recipeId)
 			}
-			meals[index].Recipes = append(meals[index].Recipes, rRecipe)
 		}
 	}
-
-	return meals, nil
+	rRecipes, err := s.rcpService.GetList(ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, recipe := range rRecipes {
+		recipes[recipe.Id] = recipe
+	}
+	return &recipes, nil
 }
 
 func validateMeal(meal MealCreate) error {

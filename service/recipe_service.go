@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/cookbook/repository"
@@ -8,6 +9,7 @@ import (
 
 type RecipeService interface {
 	Get(int64) (RecipeGet, error)
+	GetList([]int64) ([]RecipeGet, error)
 	GetAll() ([]RecipeGet, error)
 	Create(RecipeCreate) error
 	Update(RecipeCreate) error
@@ -31,25 +33,31 @@ func (s RecipeServiceImpl) Get(id int64) (recipe RecipeGet, err error) {
 	if err != nil {
 		return RecipeGet{}, handleError(err)
 	}
-
-	recipe = RecipeGet{
-		Id:    rRecipe.Id,
-		Name:  rRecipe.Name,
-		Steps: rRecipe.Steps,
+	recipes, err := s.convertRepoModel(rRecipe)
+	if err != nil {
+		return RecipeGet{}, handleError(err)
 	}
-	for _, ing := range rRecipe.Ingredients {
-		rIng, _ := s.ingService.Get(ing.Id)
-		rIng, err = scaleIngredient(rIng, Quantity{Amount: ing.Amount, Unit: ing.Unit})
-		if err != nil {
-
-		}
-		recipe.Ingredients = append(recipe.Ingredients, rIng)
-		recipe.Calories += rIng.Calories
-		recipe.Protein += rIng.Protein
-		recipe.Carbs += rIng.Carbs
-		recipe.Fat += rIng.Fat
+	if len(recipes) != 1 {
+		fmt.Println("Found multiple recipes with the same ID")
+		return RecipeGet{}, &InternalError{message: "internal error, if the problem persists contact server admin"}
 	}
-	return
+	return recipes[0], nil
+}
+
+func (s RecipeServiceImpl) GetList(ids []int64) ([]RecipeGet, error) {
+	rRecipes, err := s.repo.GetList(ids)
+	if err != nil {
+		return []RecipeGet{}, handleError(err)
+	}
+	return s.convertRepoModel(rRecipes...)
+}
+
+func (s RecipeServiceImpl) GetAll() ([]RecipeGet, error) {
+	rRecipes, err := s.repo.GetAll()
+	if err != nil {
+		return []RecipeGet{}, handleError(err)
+	}
+	return s.convertRepoModel(rRecipes...)
 }
 
 func (s RecipeServiceImpl) Create(recipe RecipeCreate) (err error) {
@@ -108,21 +116,20 @@ func (s RecipeServiceImpl) Delete(id int64) (err error) {
 	return
 }
 
-func (s RecipeServiceImpl) GetAll() ([]RecipeGet, error) {
-	rRecipes, err := s.repo.GetAll()
+func (s RecipeServiceImpl) convertRepoModel(repoRecipes ...repository.Recipe) ([]RecipeGet, error) {
+	var recipes = make([]RecipeGet, len(repoRecipes))
+	usedIngredients, err := s.getAllIngredients(repoRecipes...)
 	if err != nil {
 		return []RecipeGet{}, handleError(err)
 	}
-	var recipes = make([]RecipeGet, len(rRecipes))
-
-	for index, rRecipe := range rRecipes {
+	for index, rRecipe := range repoRecipes {
 		recipes[index] = RecipeGet{
 			Id:    rRecipe.Id,
 			Name:  rRecipe.Name,
 			Steps: rRecipe.Steps,
 		}
 		for _, ing := range rRecipe.Ingredients {
-			rIng, _ := s.ingService.Get(ing.Id)
+			rIng := (*usedIngredients)[ing.Id]
 			rIng, err = scaleIngredient(rIng, Quantity{Amount: ing.Amount, Unit: ing.Unit})
 			if err != nil {
 
@@ -134,8 +141,28 @@ func (s RecipeServiceImpl) GetAll() ([]RecipeGet, error) {
 			recipes[index].Fat += rIng.Fat
 		}
 	}
-
 	return recipes, nil
+}
+
+func (s RecipeServiceImpl) getAllIngredients(recipes ...repository.Recipe) (*map[int64]Ingredient, error) {
+	ingredients := make(map[int64]Ingredient)
+	var ids []int64
+	for _, recipe := range recipes {
+		for _, ing := range recipe.Ingredients {
+			if _, ok := ingredients[ing.Id]; !ok {
+				ingredients[ing.Id] = Ingredient{}
+				ids = append(ids, ing.Id)
+			}
+		}
+	}
+	rIngredients, err := s.ingService.GetList(ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, ing := range rIngredients {
+		ingredients[ing.Id] = ing
+	}
+	return &ingredients, nil
 }
 
 func scaleIngredient(i Ingredient, finalQuantity Quantity) (Ingredient, error) {

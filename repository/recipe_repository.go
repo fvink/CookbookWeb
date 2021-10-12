@@ -72,7 +72,7 @@ func (r RecipeRepository) GetAll() (recipes []Recipe, err error) {
 }
 
 func (r RecipeRepository) GetList(ids []int64) (recipes []Recipe, err error) {
-	results, err := r.db.Query(context.Background(), "SELECT * FROM recipes WHERE id IN ($1)", JoinIds(ids))
+	results, err := r.db.Query(context.Background(), "SELECT * FROM recipes WHERE id IN ("+JoinIds(ids)+")")
 	if err != nil {
 		return []Recipe{}, &InternalError{err.Error()}
 	}
