@@ -1,6 +1,10 @@
 package service
 
-import "github.com/cookbook/repository"
+import (
+	"log"
+
+	"github.com/cookbook/repository"
+)
 
 type RecipeService interface {
 	Get(int64) (RecipeGet, error)
@@ -67,6 +71,7 @@ func (s RecipeServiceImpl) Create(recipe RecipeCreate) (err error) {
 	err = s.repo.Create(rRecipe)
 	if err != nil {
 		err = handleError(err)
+		log.Println(err.Error())
 	}
 	return
 }

@@ -1,30 +1,29 @@
 package repository
 
 import (
-	"database/sql"
+	"context"
 	"log"
+
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 type RecipeRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewRecipeRepository() (*RecipeRepository, error) {
+func NewRecipeRepository(dbConn *pgxpool.Pool) *RecipeRepository {
 	r := new(RecipeRepository)
-	var err error
-	r.db, err = sql.Open("mysql", "root@tcp(127.0.0.1:3306)/cookbook")
-	if err != nil {
-		log.Println(err.Error())
-	}
-	return r, err
+	r.db = dbConn
+	return r
 }
 
 func (r RecipeRepository) Get(id int64) (recipe Recipe, e error) {
-	err := r.db.QueryRow("SELECT * FROM recipes WHERE id = ?", id).Scan(&recipe.Id, &recipe.Name, &recipe.Steps)
+	err := r.db.QueryRow(context.Background(), "SELECT * FROM recipes WHERE id = $1", id).Scan(&recipe.Id, &recipe.Name, &recipe.Steps)
 	if err != nil {
 		log.Println(err.Error())
 		switch err {
-		case sql.ErrNoRows:
+		case pgx.ErrNoRows:
 			e = &NotFound{"recipes", id}
 		default:
 			e = &InternalError{err.Error()}
@@ -35,8 +34,10 @@ func (r RecipeRepository) Get(id int64) (recipe Recipe, e error) {
 }
 
 func (r RecipeRepository) getRecipeIngredients(recipeId int64) (ingredients []IngredientShort, e error) {
-	results, err := r.db.Query("SELECT ingredient_id, amount, unit FROM recipe_ingredients WHERE recipe_id = ? ORDER BY recipe_ingredients.index", recipeId)
+
+	results, err := r.db.Query(context.Background(), "SELECT ingredient_id, amount, unit FROM recipe_ingredients WHERE recipe_id = $1 ORDER BY recipe_ingredients.index", recipeId)
 	if err != nil {
+		log.Println(err.Error())
 		return []IngredientShort{}, &InternalError{err.Error()}
 	}
 	for results.Next() {
@@ -51,7 +52,27 @@ func (r RecipeRepository) getRecipeIngredients(recipeId int64) (ingredients []In
 }
 
 func (r RecipeRepository) GetAll() (recipes []Recipe, err error) {
-	results, err := r.db.Query("SELECT * FROM recipes")
+	results, err := r.db.Query(context.Background(), "SELECT * FROM recipes")
+	if err != nil {
+		return []Recipe{}, &InternalError{err.Error()}
+	}
+	for results.Next() {
+		var recipe Recipe
+		err = results.Scan(&recipe.Id, &recipe.Name, &recipe.Steps)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		recipe.Ingredients, err = r.getRecipeIngredients(recipe.Id)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		recipes = append(recipes, recipe)
+	}
+	return recipes, nil
+}
+
+func (r RecipeRepository) GetList(ids []int64) (recipes []Recipe, err error) {
+	results, err := r.db.Query(context.Background(), "SELECT * FROM recipes WHERE id IN ($1)", JoinIds(ids))
 	if err != nil {
 		return []Recipe{}, &InternalError{err.Error()}
 	}
@@ -71,16 +92,10 @@ func (r RecipeRepository) GetAll() (recipes []Recipe, err error) {
 }
 
 func (r RecipeRepository) Create(recipe Recipe) error {
-	result, err := r.db.Exec("INSERT INTO recipes (name, steps) VALUES (?, ?)", recipe.Name, recipe.Steps)
+	err := r.db.QueryRow(context.Background(), "INSERT INTO recipes (name, steps) VALUES ($1, $2) RETURNING id", recipe.Name, recipe.Steps).Scan(&recipe.Id)
 	if err != nil {
+		log.Println(err.Error())
 		return &InternalError{err.Error()}
-	}
-	rowCnt, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowCnt != 1 {
-		return &InternalError{"recipe not created"}
 	}
 	return r.createRecipeIngredients(recipe)
 }
@@ -90,20 +105,17 @@ func (r RecipeRepository) Update(recipe Recipe) error {
 	if err != nil {
 		return err
 	}
-	result, err := r.db.Exec("UPDATE recipes SET name = ?, steps = ? WHERE id = ?", recipe.Name, recipe.Steps, recipe.Id)
+	result, err := r.db.Exec(context.Background(), "UPDATE recipes SET name = $1, steps = $2 WHERE id = $3", recipe.Name, recipe.Steps, recipe.Id)
 	if err != nil {
 		log.Println(err.Error())
 		switch err {
-		case sql.ErrNoRows:
+		case pgx.ErrNoRows:
 			return &NotFound{"recipes", recipe.Id}
 		default:
 			return &InternalError{err.Error()}
 		}
 	}
-	rowCnt, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowCnt := result.RowsAffected()
 	if rowCnt != 1 {
 		return &InternalError{"recipe not updated"}
 	}
@@ -112,15 +124,14 @@ func (r RecipeRepository) Update(recipe Recipe) error {
 
 func (r RecipeRepository) createRecipeIngredients(recipe Recipe) error {
 	for index, ing := range recipe.Ingredients {
-		result, err := r.db.Exec("INSERT INTO recipe_ingredients (recipe_id, ingredient_id, amount, unit, index) VALUES (?, ?, ?, ?, ?)", recipe.Id, ing.Id, ing.Amount, ing.Unit, index)
+		result, err := r.db.Exec(context.Background(), "INSERT INTO recipe_ingredients (recipe_id, ingredient_id, amount, unit, index) VALUES ($1, $2, $3, $4, $5)", recipe.Id, ing.Id, ing.Amount, ing.Unit, index)
 		if err != nil {
+			log.Println(err.Error())
 			return &InternalError{err.Error()}
 		}
-		rowCnt, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
+		rowCnt := result.RowsAffected()
 		if rowCnt != 1 {
+			log.Println(err.Error())
 			return &InternalError{"recipe ingredient not created"}
 		}
 	}
@@ -128,14 +139,11 @@ func (r RecipeRepository) createRecipeIngredients(recipe Recipe) error {
 }
 
 func (r RecipeRepository) Delete(id int64) error {
-	result, err := r.db.Exec("DELETE FROM recipes WHERE id = ?", id)
+	result, err := r.db.Exec(context.Background(), "DELETE FROM recipes WHERE id = $1", id)
 	if err != nil {
 		return &InternalError{err.Error()}
 	}
-	rowCnt, err := result.RowsAffected()
-	if err != nil {
-		return &InternalError{err.Error()}
-	}
+	rowCnt := result.RowsAffected()
 	if rowCnt != 1 {
 		return &NotFound{"recipes", id}
 	}
@@ -143,7 +151,7 @@ func (r RecipeRepository) Delete(id int64) error {
 }
 
 func (r RecipeRepository) deleteRecipeIngredients(recipeId int64) error {
-	_, err := r.db.Exec("DELETE FROM recipe_ingredients WHERE recipe_id = ?", recipeId)
+	_, err := r.db.Exec(context.Background(), "DELETE FROM recipe_ingredients WHERE recipe_id = $1", recipeId)
 	if err != nil {
 		return &InternalError{err.Error()}
 	}

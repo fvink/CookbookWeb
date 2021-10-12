@@ -1,9 +1,14 @@
 package service
 
-import "github.com/cookbook/repository"
+import (
+	"fmt"
+
+	"github.com/cookbook/repository"
+)
 
 type MealService interface {
 	Get(int64) (MealGet, error)
+	GetList([]int64) ([]MealGet, error)
 	GetAll() ([]MealGet, error)
 	Create(MealCreate) error
 	Update(MealCreate) error
@@ -83,6 +88,31 @@ func (s MealServiceImpl) Delete(id int64) (err error) {
 func (s MealServiceImpl) GetAll() ([]MealGet, error) {
 	rMeals, err := s.repo.GetAll()
 	if err != nil {
+		return []MealGet{}, handleError(err)
+	}
+	var meals = make([]MealGet, len(rMeals))
+
+	for index, rMeal := range rMeals {
+		meals[index] = MealGet{
+			Id:   rMeal.Id,
+			Name: rMeal.Name,
+		}
+		for _, recipeId := range rMeal.Recipes {
+			rRecipe, _ := s.rcpService.Get(recipeId)
+			if err != nil {
+
+			}
+			meals[index].Recipes = append(meals[index].Recipes, rRecipe)
+		}
+	}
+
+	return meals, nil
+}
+
+func (s MealServiceImpl) GetList(ids []int64) ([]MealGet, error) {
+	rMeals, err := s.repo.GetList(ids)
+	if err != nil {
+		fmt.Println(err.Error())
 		return []MealGet{}, handleError(err)
 	}
 	var meals = make([]MealGet, len(rMeals))
