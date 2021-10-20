@@ -7,6 +7,7 @@ COPY go.sum ./
 RUN go mod download
 
 COPY . ./
+COPY config.yaml /
 
 RUN go build -o /cookbook
 
