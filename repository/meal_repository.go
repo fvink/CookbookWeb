@@ -29,52 +29,12 @@ func (r MealRepository) Get(id int64) (meal Meal, e error) {
 			return Meal{}, &InternalError{err.Error()}
 		}
 	}
-	recipes, err := r.getMealRecipes([]int64{id})
+	recipes, err := r.getMealRecipesByIds([]int64{id})
 	if err != nil {
 		return Meal{}, err
 	}
 	meal.Recipes = recipes[id]
 	return meal, nil
-}
-
-func (r MealRepository) getMealRecipes(ids []int64) (recipes map[int64][]int64, err error) {
-	recipes = make(map[int64][]int64)
-	results, err := r.db.Query(context.Background(), "SELECT meal_id, recipe_id FROM meal_recipes WHERE meal_id IN ("+JoinIds(ids)+") ORDER BY recipe_id, meal_recipes.index")
-	if err != nil {
-		return nil, &InternalError{err.Error()}
-	}
-	for results.Next() {
-		var mealId, recipeId int64
-		err = results.Scan(&mealId, &recipeId)
-		if err != nil {
-			log.Println(err.Error())
-		}
-		if _, ok := recipes[mealId]; !ok {
-			recipes[mealId] = make([]int64, 0)
-		}
-		recipes[mealId] = append(recipes[mealId], recipeId)
-	}
-	return recipes, nil
-}
-
-func (r MealRepository) getAllMealRecipes() (recipes map[int64][]int64, err error) {
-	recipes = make(map[int64][]int64)
-	results, err := r.db.Query(context.Background(), "SELECT meal_id, recipe_id FROM meal_recipes ORDER BY recipe_id, meal_recipes.index")
-	if err != nil {
-		return nil, &InternalError{err.Error()}
-	}
-	for results.Next() {
-		var mealId, recipeId int64
-		err = results.Scan(&mealId, &recipeId)
-		if err != nil {
-			log.Println(err.Error())
-		}
-		if _, ok := recipes[mealId]; !ok {
-			recipes[mealId] = make([]int64, 0)
-		}
-		recipes[mealId] = append(recipes[mealId], recipeId)
-	}
-	return recipes, nil
 }
 
 func (r MealRepository) GetAll() (meals []Meal, e error) {
@@ -86,19 +46,7 @@ func (r MealRepository) GetAll() (meals []Meal, e error) {
 	if err != nil {
 		return []Meal{}, err
 	}
-	for results.Next() {
-		var meal Meal
-		err = results.Scan(&meal.Id, &meal.Name)
-		if err != nil {
-			log.Println(err.Error())
-		}
-		meal.Recipes = mealRecipes[meal.Id]
-		if err != nil {
-			log.Println(err.Error())
-		}
-		meals = append(meals, meal)
-	}
-	return meals, nil
+	return r.parseMealRows(results, mealRecipes), nil
 }
 
 func (r MealRepository) GetList(ids []int64) (meals []Meal, e error) {
@@ -106,13 +54,17 @@ func (r MealRepository) GetList(ids []int64) (meals []Meal, e error) {
 	if err != nil {
 		return []Meal{}, &InternalError{err.Error()}
 	}
-	mealRecipes, err := r.getMealRecipes(ids)
+	mealRecipes, err := r.getMealRecipesByIds(ids)
 	if err != nil {
 		return []Meal{}, err
 	}
-	for results.Next() {
+	return r.parseMealRows(results, mealRecipes), nil
+}
+
+func (r MealRepository) parseMealRows(rows pgx.Rows, mealRecipes map[int64][]int64) (meals []Meal) {
+	for rows.Next() {
 		var meal Meal
-		err = results.Scan(&meal.Id, &meal.Name)
+		err := rows.Scan(&meal.Id, &meal.Name)
 		if err != nil {
 			log.Println(err.Error())
 		}
@@ -122,7 +74,35 @@ func (r MealRepository) GetList(ids []int64) (meals []Meal, e error) {
 		}
 		meals = append(meals, meal)
 	}
-	return meals, nil
+	return meals
+}
+
+func (r MealRepository) getMealRecipesByIds(ids []int64) (recipes map[int64][]int64, err error) {
+	return r.getMealRecipes("SELECT meal_id, recipe_id FROM meal_recipes WHERE meal_id IN (" + JoinIds(ids) + ") ORDER BY recipe_id, meal_recipes.index")
+}
+
+func (r MealRepository) getAllMealRecipes() (recipes map[int64][]int64, err error) {
+	return r.getMealRecipes("SELECT meal_id, recipe_id FROM meal_recipes ORDER BY recipe_id, meal_recipes.index")
+}
+
+func (r MealRepository) getMealRecipes(query string) (map[int64][]int64, error) {
+	recipes := make(map[int64][]int64)
+	results, err := r.db.Query(context.Background(), query)
+	if err != nil {
+		return nil, &InternalError{err.Error()}
+	}
+	for results.Next() {
+		var mealId, recipeId int64
+		err = results.Scan(&mealId, &recipeId)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		if _, ok := recipes[mealId]; !ok {
+			recipes[mealId] = make([]int64, 0)
+		}
+		recipes[mealId] = append(recipes[mealId], recipeId)
+	}
+	return recipes, nil
 }
 
 func (r MealRepository) Create(meal Meal) error {

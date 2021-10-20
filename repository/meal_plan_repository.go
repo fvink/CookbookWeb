@@ -37,6 +37,30 @@ func (r MealPlanRepository) Get(id int64) (mealPlan MealPlan, e error) {
 	return
 }
 
+func (r MealPlanRepository) GetAll() (mealPlans []MealPlan, e error) {
+	results, err := r.db.Query(context.Background(), "SELECT * FROM meal_plans")
+	if err != nil {
+		return []MealPlan{}, &InternalError{err.Error()}
+	}
+	meals, err := r.getAllMealPlanMeals()
+	if err != nil {
+		return []MealPlan{}, &InternalError{err.Error()}
+	}
+	for results.Next() {
+		var mealPlan MealPlan
+		err = results.Scan(&mealPlan.Id, &mealPlan.Name, &mealPlan.StartDate)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		var ok bool
+		if mealPlan.Meals, ok = meals[mealPlan.Id]; !ok {
+			mealPlan.Meals = [][]int64{}
+		}
+		mealPlans = append(mealPlans, mealPlan)
+	}
+	return mealPlans, nil
+}
+
 func (r MealPlanRepository) getMealPlanMeals(ids []int64) (meals map[int64][][]int64, err error) {
 	meals = make(map[int64][][]int64)
 	results, err := r.db.Query(context.Background(), "SELECT meal_plan_id, meal_id, day FROM meal_plan_meals WHERE meal_plan_id IN ("+JoinIds(ids)+") ORDER BY meal_plan_meals.day DESC, meal_plan_meals.index")
@@ -75,30 +99,6 @@ func (r MealPlanRepository) getAllMealPlanMeals() (meals map[int64][][]int64, er
 		meals[mealPlanId][day] = append(meals[mealPlanId][day], mealId)
 	}
 	return meals, nil
-}
-
-func (r MealPlanRepository) GetAll() (mealPlans []MealPlan, e error) {
-	results, err := r.db.Query(context.Background(), "SELECT * FROM meal_plans")
-	if err != nil {
-		return []MealPlan{}, &InternalError{err.Error()}
-	}
-	meals, err := r.getAllMealPlanMeals()
-	if err != nil {
-		return []MealPlan{}, &InternalError{err.Error()}
-	}
-	for results.Next() {
-		var mealPlan MealPlan
-		err = results.Scan(&mealPlan.Id, &mealPlan.Name, &mealPlan.StartDate)
-		if err != nil {
-			log.Println(err.Error())
-		}
-		var ok bool
-		if mealPlan.Meals, ok = meals[mealPlan.Id]; !ok {
-			mealPlan.Meals = [][]int64{}
-		}
-		mealPlans = append(mealPlans, mealPlan)
-	}
-	return mealPlans, nil
 }
 
 func (r MealPlanRepository) Create(mealPlan MealPlan) error {
