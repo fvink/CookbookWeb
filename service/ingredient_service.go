@@ -160,6 +160,31 @@ func (s ServiceImpl) convertRepoModel(repoIngredients ...repository.Ingredient) 
 }
 
 func validateIngredient(i Ingredient) error {
+	var messages []string
+	if i.Name == "" {
+		messages = append(messages, "Ingredient name must be provided")
+	}
+	if !isUnitValid(i.Unit) {
+		messages = append(messages, fmt.Sprintf("Invalid measurement unit: %s", i.Unit))
+	}
+	if i.Amount <= 0.0 {
+		messages = append(messages, "Ingredient amount must be greater then 0")
+	}
+	if i.Calories < 0.0 {
+		messages = append(messages, "Calories amount must be a positive value")
+	}
+	if i.Protein < 0.0 {
+		messages = append(messages, "Protein amount must be a positive value")
+	}
+	if i.Carbs < 0.0 {
+		messages = append(messages, "Carb amount must be a positive value")
+	}
+	if i.Fat < 0.0 {
+		messages = append(messages, "Fat amount must be a positive value")
+	}
+	if len(messages) > 0 {
+		return &ValidationError{messages: messages}
+	}
 	return nil
 }
 

@@ -179,5 +179,20 @@ func scaleIngredient(i Ingredient, finalQuantity Quantity) (Ingredient, error) {
 }
 
 func validateRecipe(recipe RecipeCreate) error {
+	var messages []string
+	if recipe.Name == "" {
+		messages = append(messages, "Recipe name must be provided")
+	}
+	for _, ingredient := range recipe.Ingredients {
+		if !isUnitValid(ingredient.Unit) {
+			messages = append(messages, fmt.Sprintf("Invalid measurement unit %s for %d", ingredient.Unit, ingredient.Id))
+		}
+		if ingredient.Amount <= 0.0 {
+			messages = append(messages, fmt.Sprintf("Ingredient amount must be greater then 0 for %d", ingredient.Id))
+		}
+	}
+	if len(messages) > 0 {
+		return &ValidationError{messages: messages}
+	}
 	return nil
 }

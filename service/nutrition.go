@@ -27,6 +27,11 @@ func ConvertUnit(src, dst string) (float32, error) {
 	return 0.0, fmt.Errorf("conversion between %s and %s is not defined", src, dst)
 }
 
+func isUnitValid(unit string) bool {
+	_, ok := unitConversionTable[unit]
+	return ok
+}
+
 var unitConversionTable = map[string]map[string]float32{
 	"kg": {
 		"g":  1000.0,

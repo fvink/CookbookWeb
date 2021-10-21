@@ -138,6 +138,13 @@ func (s MealPlanServiceImpl) getAllMeals(mealPlans ...repository.MealPlan) (*map
 	return &meals, nil
 }
 
-func validateMealPlan(meal MealPlanCreate) error {
+func validateMealPlan(mealPlan MealPlanCreate) error {
+	var messages []string
+	if mealPlan.Name == "" {
+		messages = append(messages, "Meal plan name must be provided")
+	}
+	if len(messages) > 0 {
+		return &ValidationError{messages: messages}
+	}
 	return nil
 }

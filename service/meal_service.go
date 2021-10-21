@@ -142,5 +142,12 @@ func (s MealServiceImpl) getAllRecipes(meals ...repository.Meal) (*map[int64]Rec
 }
 
 func validateMeal(meal MealCreate) error {
+	var messages []string
+	if meal.Name == "" {
+		messages = append(messages, "Meal name must be provided")
+	}
+	if len(messages) > 0 {
+		return &ValidationError{messages: messages}
+	}
 	return nil
 }
