@@ -106,22 +106,44 @@ func (r MealRepository) getMealRecipes(query string) (map[int64][]int64, error) 
 }
 
 func (r MealRepository) Create(meal Meal) error {
-	err := r.db.QueryRow(context.Background(), "INSERT INTO meals (name) VALUES ($1) RETURNING id", meal.Name).Scan(&meal.Id)
-	if err != nil {
-		log.Println(err.Error())
-		return &InternalError{err.Error()}
-	}
-	return r.createMealRecipes(meal)
-}
-
-func (r MealRepository) Update(meal Meal) error {
-	err := r.deleteMealRecipes(meal.Id)
+	ctx := context.Background()
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
-	result, err := r.db.Exec(context.Background(), "UPDATE meals SET name = $1 WHERE id = $2", meal.Name, meal.Id)
+	err = tx.QueryRow(ctx, "INSERT INTO meals (name) VALUES ($1) RETURNING id", meal.Name).Scan(&meal.Id)
 	if err != nil {
 		log.Println(err.Error())
+		tx.Rollback(ctx)
+		return &InternalError{err.Error()}
+	}
+	err = r.createMealRecipes(tx, ctx, meal)
+	if err != nil {
+		tx.Rollback(ctx)
+		return &InternalError{err.Error()}
+	}
+	err = tx.Commit(ctx)
+	if err != nil {
+		return &InternalError{err.Error()}
+	}
+	return nil
+}
+
+func (r MealRepository) Update(meal Meal) error {
+	ctx := context.Background()
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	err = r.deleteMealRecipes(tx, ctx, meal.Id)
+	if err != nil {
+		tx.Rollback(ctx)
+		return err
+	}
+	result, err := tx.Exec(ctx, "UPDATE meals SET name = $1 WHERE id = $2", meal.Name, meal.Id)
+	if err != nil {
+		log.Println(err.Error())
+		tx.Rollback(ctx)
 		switch err {
 		case pgx.ErrNoRows:
 			return &NotFound{"meals", meal.Id}
@@ -131,14 +153,24 @@ func (r MealRepository) Update(meal Meal) error {
 	}
 	rowCnt := result.RowsAffected()
 	if rowCnt != 1 {
+		tx.Rollback(ctx)
 		return &InternalError{"meal not updated"}
 	}
-	return r.createMealRecipes(meal)
+	err = r.createMealRecipes(tx, ctx, meal)
+	if err != nil {
+		tx.Rollback(ctx)
+		return &InternalError{err.Error()}
+	}
+	err = tx.Commit(ctx)
+	if err != nil {
+		return &InternalError{err.Error()}
+	}
+	return nil
 }
 
-func (r MealRepository) createMealRecipes(meal Meal) error {
+func (r MealRepository) createMealRecipes(tx pgx.Tx, ctx context.Context, meal Meal) error {
 	for index, recipeId := range meal.Recipes {
-		result, err := r.db.Exec(context.Background(), "INSERT INTO meal_recipes (meal_id, recipe_id, index) VALUES ($1, $2, $3)", meal.Id, recipeId, index)
+		result, err := tx.Exec(ctx, "INSERT INTO meal_recipes (meal_id, recipe_id, index) VALUES ($1, $2, $3)", meal.Id, recipeId, index)
 		if err != nil {
 			log.Println(err.Error())
 			return &InternalError{err.Error()}
@@ -152,6 +184,14 @@ func (r MealRepository) createMealRecipes(meal Meal) error {
 	return nil
 }
 
+func (r MealRepository) deleteMealRecipes(tx pgx.Tx, ctx context.Context, mealId int64) error {
+	_, err := tx.Exec(ctx, "DELETE FROM meal_recipes WHERE meal_id = $1", mealId)
+	if err != nil {
+		return &InternalError{err.Error()}
+	}
+	return nil
+}
+
 func (r MealRepository) Delete(id int64) error {
 	result, err := r.db.Exec(context.Background(), "DELETE FROM meals WHERE id = $1", id)
 	if err != nil {
@@ -160,14 +200,6 @@ func (r MealRepository) Delete(id int64) error {
 	rowCnt := result.RowsAffected()
 	if rowCnt != 1 {
 		return &NotFound{"meals", id}
-	}
-	return nil
-}
-
-func (r MealRepository) deleteMealRecipes(mealId int64) error {
-	_, err := r.db.Exec(context.Background(), "DELETE FROM meal_recipes WHERE meal_id = $1", mealId)
-	if err != nil {
-		return &InternalError{err.Error()}
 	}
 	return nil
 }

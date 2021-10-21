@@ -109,22 +109,44 @@ func (r RecipeRepository) getRecipeIngredients(query string) (map[int64][]Ingred
 }
 
 func (r RecipeRepository) Create(recipe Recipe) error {
-	err := r.db.QueryRow(context.Background(), "INSERT INTO recipes (name, steps) VALUES ($1, $2) RETURNING id", recipe.Name, recipe.Steps).Scan(&recipe.Id)
-	if err != nil {
-		log.Println(err.Error())
-		return &InternalError{err.Error()}
-	}
-	return r.createRecipeIngredients(recipe)
-}
-
-func (r RecipeRepository) Update(recipe Recipe) error {
-	err := r.deleteRecipeIngredients(recipe.Id)
+	ctx := context.Background()
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
-	result, err := r.db.Exec(context.Background(), "UPDATE recipes SET name = $1, steps = $2 WHERE id = $3", recipe.Name, recipe.Steps, recipe.Id)
+	err = tx.QueryRow(ctx, "INSERT INTO recipes (name, steps) VALUES ($1, $2) RETURNING id", recipe.Name, recipe.Steps).Scan(&recipe.Id)
 	if err != nil {
 		log.Println(err.Error())
+		tx.Rollback(ctx)
+		return &InternalError{err.Error()}
+	}
+	err = r.createRecipeIngredients(tx, ctx, recipe)
+	if err != nil {
+		tx.Rollback(ctx)
+		return &InternalError{err.Error()}
+	}
+	err = tx.Commit(ctx)
+	if err != nil {
+		return &InternalError{err.Error()}
+	}
+	return nil
+}
+
+func (r RecipeRepository) Update(recipe Recipe) error {
+	ctx := context.Background()
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	err = r.deleteRecipeIngredients(tx, ctx, recipe.Id)
+	if err != nil {
+		tx.Rollback(ctx)
+		return err
+	}
+	result, err := tx.Exec(ctx, "UPDATE recipes SET name = $1, steps = $2 WHERE id = $3", recipe.Name, recipe.Steps, recipe.Id)
+	if err != nil {
+		log.Println(err.Error())
+		tx.Rollback(ctx)
 		switch err {
 		case pgx.ErrNoRows:
 			return &NotFound{"recipes", recipe.Id}
@@ -134,14 +156,24 @@ func (r RecipeRepository) Update(recipe Recipe) error {
 	}
 	rowCnt := result.RowsAffected()
 	if rowCnt != 1 {
+		tx.Rollback(ctx)
 		return &InternalError{"recipe not updated"}
 	}
-	return r.createRecipeIngredients(recipe)
+	err = r.createRecipeIngredients(tx, ctx, recipe)
+	if err != nil {
+		tx.Rollback(ctx)
+		return &InternalError{err.Error()}
+	}
+	err = tx.Commit(ctx)
+	if err != nil {
+		return &InternalError{err.Error()}
+	}
+	return nil
 }
 
-func (r RecipeRepository) createRecipeIngredients(recipe Recipe) error {
+func (r RecipeRepository) createRecipeIngredients(tx pgx.Tx, ctx context.Context, recipe Recipe) error {
 	for index, ing := range recipe.Ingredients {
-		result, err := r.db.Exec(context.Background(), "INSERT INTO recipe_ingredients (recipe_id, ingredient_id, amount, unit, index) VALUES ($1, $2, $3, $4, $5)", recipe.Id, ing.Id, ing.Amount, ing.Unit, index)
+		result, err := tx.Exec(ctx, "INSERT INTO recipe_ingredients (recipe_id, ingredient_id, amount, unit, index) VALUES ($1, $2, $3, $4, $5)", recipe.Id, ing.Id, ing.Amount, ing.Unit, index)
 		if err != nil {
 			log.Println(err.Error())
 			return &InternalError{err.Error()}
@@ -167,8 +199,8 @@ func (r RecipeRepository) Delete(id int64) error {
 	return nil
 }
 
-func (r RecipeRepository) deleteRecipeIngredients(recipeId int64) error {
-	_, err := r.db.Exec(context.Background(), "DELETE FROM recipe_ingredients WHERE recipe_id = $1", recipeId)
+func (r RecipeRepository) deleteRecipeIngredients(tx pgx.Tx, ctx context.Context, recipeId int64) error {
+	_, err := tx.Exec(ctx, "DELETE FROM recipe_ingredients WHERE recipe_id = $1", recipeId)
 	if err != nil {
 		return &InternalError{err.Error()}
 	}
