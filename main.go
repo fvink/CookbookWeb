@@ -13,7 +13,11 @@ import (
 )
 
 func main() {
-	dbConn, err := pgxpool.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+	databaseUrl = os.Getenv("DATABASE_URL")
+	serverHost = os.Getenv("SERVER_HOST")
+	serverPort = os.Getenv("PORT")
+	
+	dbConn, err := pgxpool.Connect(context.Background(), databaseUrl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
@@ -42,5 +46,5 @@ func main() {
 	router.Register("meals", mealHandler)
 	router.Register("meal-plans", mealPlanHandler)
 
-	http.ListenAndServe(conf.Server.Host+":"+conf.Server.Port, router)
+	http.ListenAndServe(serverHost + ":" + serverPort, router)
 }
