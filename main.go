@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/cookbook/config"
 	"github.com/cookbook/handler"
 	"github.com/cookbook/repository"
 	"github.com/cookbook/service"
@@ -14,18 +13,6 @@ import (
 )
 
 func main() {
-	// conf, err := config.LoadConfig("config.yaml")
-	// if err != nil {
-	// 	fmt.Println(err.Error())
-	// 	os.Exit(1)
-	// }
-	// databaseUrl := fmt.Sprintf("%s://%s:%s@%s:%s/%s", conf.Database.Protocol,
-	// 	conf.Database.Username,
-	// 	conf.Database.Password,
-	// 	conf.Database.Server,
-	// 	conf.Database.Port,
-	// 	conf.Database.Name)
-
 	dbConn, err := pgxpool.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
