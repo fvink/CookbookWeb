@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	databaseUrl = os.Getenv("DATABASE_URL")
-	serverHost = os.Getenv("SERVER_HOST")
-	serverPort = os.Getenv("PORT")
+	databaseUrl := os.Getenv("DATABASE_URL")
+	serverHost := os.Getenv("SERVER_HOST")
+	serverPort := os.Getenv("PORT")
 	
 	dbConn, err := pgxpool.Connect(context.Background(), databaseUrl)
 	if err != nil {
